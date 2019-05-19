@@ -32,6 +32,19 @@ using GaloisFields
         end
     end
 
+    @testset "Integer promotions" begin
+        F = @GaloisField ℤ/37ℤ
+
+        @test F(2) + 4 == F(6)
+        @test F(2) * 4 == F(8)
+        @test F(2) / 4 == F(2) / F(4)
+        @test F(2) // 4 == F(2) // F(4)
+        @test 2 + F(4) == F(6)
+        @test 2 * F(4) == F(8)
+        @test 2 / F(4) == F(2) / F(4)
+        @test 2 // F(4) == F(2) / F(4)
+    end
+
     @testset "Extensions of 𝔽₃" begin
         G = @GaloisField! 𝔽₃ α^2 + 1
         H = @GaloisField! 𝔽₃ β^2 + 1
@@ -197,5 +210,33 @@ using GaloisFields
         @test repr(α - 2) == "α + 3"
         M = @GaloisField! 5^6 α
         @test repr(3α^3 - 2) == "3 * α^3 + 3"
+    end
+
+    @testset "Broadcast" begin
+        F = @GaloisField 𝔽₂₉
+
+        x = rand(1:char(F), 100)
+        y = rand(1:char(F)-1, 100)
+
+        @test F[x;] .+ F[y;] == F.(x .+ y)
+        @test F[x;] .* F[y;] == F.(x .* y)
+        @test F[x;] .- F[y;] == F.(x .- y)
+        @test F[x;] ./ F[y;] == F.(x .* invmod.(y, char(F)))
+
+        @test F(x[1]) .+ F[y;] == F.(x[1] .+ y)
+        @test x[1] .+ F[y;] == F.(x[1] .+ y)
+
+        @test F(x[1]) ./ F[y;] == F.(x[1] .* invmod.(y, char(F)))
+        @test x[1] ./ F[y;] == F.(x[1] .* invmod.(y, char(F)))
+        @test F[x;] ./ F(y[1]) == F.(x .* invmod(y[1], char(F)))
+        @test F[x;] ./ y[1] == F.(x .* invmod(y[1], char(F)))
+
+        @test F(x[1]) .// F[y;] == F.(x[1] .* invmod.(y, char(F)))
+        @test x[1] .// F[y;] == F.(x[1] .* invmod.(y, char(F)))
+        @test F[x;] .// F(y[1]) == F.(x .* invmod(y[1], char(F)))
+        @test F[x;] .// y[1] == F.(x .* invmod(y[1], char(F)))
+
+        @test F.(x) == F[x;]
+        @test convert.(F, x) == F[x;]
     end
 end

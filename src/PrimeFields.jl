@@ -1,13 +1,28 @@
 import Base.Checked: add_with_overflow, sub_with_overflow
 
 """
+    posmod(x, y)
+
+Return mod(x, y) under the assumption that y is positive. In general,
+returns
+
+    rem(x, y) + ifelse(rem(x, y) < 0, y, 0)
+
+This is slightly faster than the mod operation.
+"""
+function posmod(x, y)
+    z = rem(x, y)
+    z + ifelse(signbit(z), y, zero(y))
+end
+
+"""
     PrimeField{I<:Integer, p}
 
 A type representing an element in ℤ/pℤ.
 """
 struct PrimeField{I<:Integer, p} <: AbstractGaloisField
     n::I
-    PrimeField{I, p}(n::Integer) where {I, p} = new(mod(n, p))
+    PrimeField{I, p}(n::Integer) where {I, p} = new(posmod(n, p))
     PrimeField{I, p}(::NonNegative, n::Integer) where {I, p} = new(rem(n, p))
     PrimeField{I, p}(::Reduced, n::Integer) where {I, p} = new(n)
 end
@@ -16,10 +31,17 @@ char(::Type{PrimeField{I,p}})    where {I, p} = p
 n(::Type{PrimeField{I,p}})       where {I, p} = 1
 inttype(::Type{PrimeField{I,p}}) where {I, p} = I
 
+char(a::AbstractGaloisField)    = char(typeof(a))
+n(a::AbstractGaloisField)       = n(typeof(a))
+inttype(a::AbstractGaloisField) = inttype(typeof(a))
+
 function inttype(p::Integer)
     for I in [Int8, Int16, Int32, Int64, Int128]
         if p <= typemax(I)
-            return I
+            # take one sizer bigger so there's some room for
+            # fusing operations before doing the modulo operation.
+            # this is implicitly used in Broadcast.jl.
+            return I == Int128 ? I : widen(I)
         end
     end
     throw("Primes greater than Int128 are currently unsupported")
