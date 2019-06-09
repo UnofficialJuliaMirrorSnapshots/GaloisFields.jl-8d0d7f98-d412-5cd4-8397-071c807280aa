@@ -1,6 +1,7 @@
 @doc read(open(joinpath(@__DIR__, "..", "README.md")), String)
 module GaloisFields
 
+import Random: AbstractRNG, SamplerType
 import Serialization: deserialize
 
 import Polynomials: Poly, coeffs
@@ -11,6 +12,7 @@ import Base: zero, one, +, -, *, /, //, ^, inv, iszero
 import Base: show
 import Base: convert, promote_rule, promote_type, eltype
 import Base: iterate
+import Base: rand
 
 """
     abstract type AbstractGaloisField <: Number end
@@ -53,12 +55,14 @@ Return the characteristic of a finite field, or 0 for <:Integer or <:Rational{<I
 char(::Type{<:Rational{<:Integer}}) = 0
 char(::Type{<:Integer}) = 0
 
+include("BoundedIntegers.jl")
 include("PrimeFields.jl")
 include("ZechLog.jl")
 include("ExtensionFields.jl")
 include("BinaryFields.jl")
 include("Conversions.jl")
 include("Iterations.jl")
+include("Reinterpret.jl")
 include("Broadcast.jl")
 include("Display.jl")
 
