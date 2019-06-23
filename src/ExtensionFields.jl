@@ -58,10 +58,8 @@ end
 function _gcdx(a::AbstractVector{C}, b::AbstractVector{C}) where C
     a = copy(a)
     b = copy(b)
-    len_a = findlast(!iszero, a)
-    len_b = findlast(!iszero, b)
-    len_a === nothing && (len_a = 0)
-    len_b === nothing && (len_b = 0)
+    len_a = something(findlast(!iszero, a), 0)
+    len_b = something(findlast(!iszero, b), 0)
     m = max(len_a, len_b)
     s0, s1 = zeros(C, m), zeros(C, m)
     t0, t1 = zeros(C, m), zeros(C, m)
@@ -79,8 +77,7 @@ function _gcdx(a::AbstractVector{C}, b::AbstractVector{C}) where C
             s2[deg_diff+1:end] .-= q .* s1[1:end-deg_diff]
             t2[deg_diff+1:end] .-= q .* t1[1:end-deg_diff]
 
-            len_a = findprev(!iszero, a, len_a-1)
-            len_a == nothing && (len_a = 0)
+            len_a = something(findprev(!iszero, a, len_a-1), 0)
         end
         a, b = b, a
         len_a, len_b = len_b, len_a
@@ -90,16 +87,30 @@ function _gcdx(a::AbstractVector{C}, b::AbstractVector{C}) where C
     return (a, s0, t0)
 end
 
-function *(::Direct, a::F, b::F) where F <: ExtensionField
+@inline _conv(a, b, i, range) = sum(a[j] * b[i - j + 1] for j in range)
+@inline _convtuple(a, b, N) = ntuple(i -> _conv(a, b, i, 1 : i), N)
+@generated function *(::Direct, a::F, b::F) where F <: ExtensionField
     N = n(F)
-    coeffs = zeros(basefield(F), 2N - 1)
-    for (i, a_i) in enumerate(a.n)
-        for (j, b_j) in enumerate(b.n)
-            coeffs[i+j-1] += a_i * b_j
-        end
+    code = quote
+        res = _convtuple(a.n, b.n, $N)
     end
-    coeffs = _rem(coeffs, collect(minpoly(F)))
-    return F(ntuple(i -> coeffs[i], n(F)))
+    for i in N + 1 : 2N - 1
+        pow_of_generator = zeros(basefield(F), 2N - 1)
+        pow_of_generator[i] = one(basefield(F))
+        pow_of_generator_rem = _rem(pow_of_generator, collect(minpoly(F)))
+        pow_of_generator_tuple = tuple(pow_of_generator_rem[1:N]...)
+        c = quote
+            q = _conv(a.n, b.n, $i, $(i + 1 - N) : $N)
+            res = res .+ q .* $pow_of_generator_tuple
+        end
+        push!(code.args, c)
+    end
+
+    push!(code.args, quote
+        return F(res)
+    end)
+
+    code
 end
 
 function inv(::Direct, a::F) where F <: ExtensionField
@@ -114,7 +125,18 @@ end
 
 /(::Direct, a::F, b::F) where F <: ExtensionField = a * inv(b)
 //(::Direct, a::F, b::F) where F <: ExtensionField = a * inv(b)
-^(::Direct, a::F, n::Integer) where F <: ExtensionField = Base.power_by_squaring(a, n)
+function ^(::Direct, a::F, n::Integer) where F <: ExtensionField
+    # TODO: when length(F) is a BigInt, this allocates BigInt(n),
+    # which is a wasteful allocation when n is small.
+    n = mod(n, length(F) - 1)
+    if n >= div(length(F) - 1, 2)
+        n -= length(F) - 1
+    end
+    if n < 0
+        a, n = inv(a), -n
+    end
+    Base.power_by_squaring(a, n)
+end
 
 *(a::F, b::F)       where F <: ExtensionField = zech_op(F, *, a, b)
 /(a::F, b::F)       where F <: ExtensionField = zech_op(F, /, a, b)

@@ -1,8 +1,7 @@
 """
     GaloisFields.Broadcast
 
-Currently, this module contains two distinct optimizations for
-`Vector{<:PrimeField}`:
+Currently, this module contains optimizations for `Vector{<:PrimeField}`.
 
 This module optimizes operations for Vector{<:PrimeField} by doing only a single
 mod(..., char(F)) operation for a fused broadcasted operation (e.g. `mod(x.n +
@@ -43,12 +42,13 @@ broadcasted(st::FusedModBroadcast, f::FusableOps, args...) = Broadcasted{typeof(
 broadcasted(st::FusedModBroadcast, f::Function, args...) = broadcasted(DefaultArrayStyle{1}(), f, args...)
 
 _boundedtype(T::Type{<:PrimeField}) = BoundedInteger{0:char(T)-1, inttype(T)}
-_reinterpret(x) = x
-_reinterpret(x::PrimeField) = reinterpret(_boundedtype(typeof(x)), x.n)
-_reinterpret(x::AbstractArray{<:PrimeField}) = reinterpret(_boundedtype(eltype(x)), x)
+_reinterpret(F, x) = x
+_reinterpret(F, x::Integer) = _reinterpret(F, F(x))
+_reinterpret(F, x::PrimeField) = reinterpret(_boundedtype(typeof(x)), x.n)
+_reinterpret(F, x::AbstractArray{<:PrimeField}) = reinterpret(_boundedtype(eltype(x)), x)
 function copyto!(dest::AbstractArray{F}, bc::Broadcasted{FusedModBroadcast{F}}) where F <: PrimeField
     bcf = flatten(bc)
-    args = map(_reinterpret, bcf.args)
+    args = map(x -> _reinterpret(F, x), bcf.args)
     red(x) = posmod(x, char(F)) % inttype(F)
     copyto!(reinterpret(inttype(F), dest), broadcasted(red ∘ bcf.f, args...))
     dest
