@@ -1,6 +1,7 @@
 @doc read(open(joinpath(@__DIR__, "..", "README.md")), String)
 module GaloisFields
 
+import LinearAlgebra: norm, tr
 import Random: AbstractRNG, SamplerType
 import Serialization: deserialize
 
@@ -65,6 +66,7 @@ include("Iterations.jl")
 include("Reinterpret.jl")
 include("Broadcast.jl")
 include("Display.jl")
+include("LinearAlgebra.jl")
 
 """
     const F = GaloisField(p)
@@ -175,7 +177,7 @@ end
 
 function GaloisField(factors::Factorization, sym::Symbol)
     if length(factors) != 1
-        throw("There is no finite field of order $(prod(f))")
+        error("There is no finite field of order $(prod(f))")
     end
     (p, n), = factors
     return GaloisField(p, n, sym)
@@ -197,7 +199,7 @@ generator.
 macro GaloisField(expr)
     res = _parse_declaration(expr)
     if res === nothing
-        throw("Not implemented: @GaloisField $expr")
+        error("Not implemented: @GaloisField $expr")
     end
     return GaloisField(res)
 end
@@ -296,5 +298,6 @@ if VERSION < v"1.3-"
 end
 
 export GaloisField, @GaloisField, @GaloisField!, char
+export norm, tr
 
 end

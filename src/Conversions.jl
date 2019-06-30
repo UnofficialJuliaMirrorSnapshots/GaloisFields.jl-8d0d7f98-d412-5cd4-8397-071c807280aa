@@ -7,9 +7,9 @@ identifications = Dict()
 macro identify(expr)
     if expr.head == :call && expr.args[1] == :(=>)
         sym, target = expr.args[2:end]
-        throw("@GaloisFields.identify is now a function: use GaloisFields.identify($expr)")
+        error("@GaloisFields.identify is now a function: use GaloisFields.identify($expr)")
     else
-        throw("Usage: @identify <symbol> => <target value>")
+        error("Usage: @identify <symbol> => <target value>")
     end
 end
 
@@ -19,7 +19,7 @@ function identify(identification::Pair{K, L}) where
     global identifications
     (src, tgt) = identification
     if !(gen(typeof(src)) == src)
-        throw("Can only specify an identification through the generator of $K")
+        error("Can only specify an identification through the generator of $K")
     end
     if sum(c*tgt^(n-1) for (n, c) in enumerate(minpoly(K))) != 0
         throw(InclusionError("Invalid identification $identification: $tgt does not satisfy minimum polynomial for $src"))
@@ -52,9 +52,24 @@ _upgrade(F::Type{<:ExtensionField{K}}, i::K) where
 _upgrade(F::Type{<:BinaryField}, i::PrimeField{I, 2}) where I = F(Bits(), i.n)
 _upgrade(F::Type{<:PrimeField}, i::PrimeField) = F(Reduced(), i.n)
 
+function _downgrade(::Type{F}, i::ExtensionField{F}) where F <: AbstractGaloisField
+    all(iszero, i.n[2:end]) || throw(InclusionError("$i is not contained in $F"))
+    i.n[1]
+end
+_downgrade(F::Type{<:AbstractGaloisField}, i::AbstractGaloisField) = _downgrade(F, _downgrade(basefield(typeof(i)), i))
+_downgrade(::Type{F}, i::F) where F <: AbstractGaloisField = copy(i)
+
 function convert(K::Type{<:AbstractGaloisField}, x::PrimeField)
     if char(K) == char(typeof(x))
         return _upgrade(K, x)
+    else
+        throw(InclusionError("Cannot convert $x to $K"))
+    end
+end
+
+function convert(K::Type{<:PrimeField}, x::AbstractGaloisField)
+    if char(K) == char(typeof(x))
+        return _downgrade(K, x)
     else
         throw(InclusionError("Cannot convert $x to $K"))
     end
@@ -114,9 +129,13 @@ end
         return quote
             return x
         end
-    elseif promote_rule(basefield(K), L) == basefield(K)
+    elseif promote_type(basefield(K), L) == basefield(K)
         return quote
             return $_upgrade(K, x)
+        end
+    elseif promote_type(K, basefield(L)) == basefield(L)
+        return quote
+            return $_downgrade(K, x)
         end
     elseif char(K) == char(L)
         if isconway(K) && isconway(L)

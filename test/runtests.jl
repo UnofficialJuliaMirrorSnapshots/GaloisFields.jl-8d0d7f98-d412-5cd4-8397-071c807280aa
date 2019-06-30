@@ -2,6 +2,8 @@ using Test
 using Primes
 using GaloisFields
 
+using LinearAlgebra: norm, tr
+
 const G = @GaloisField! 𝔽₂₉ α^2 - 2
 const H = @GaloisField! G   β^3 + 2β + 1
 const J = @GaloisField! H   γ^7 - 2
@@ -30,7 +32,7 @@ const TestFields = [
     @GaloisField! 5^6 α
 ]
 
-const MAXITERATIONS = 1000
+const MAXITERATIONS = VERSION >= v"1.1" ? 1000 : 250 # v1.0 is much slower than recent, causing CI to error out.
 const MAXITERATIONS2 = round(Int, sqrt(MAXITERATIONS))
 const MAXITERATIONS3 = round(Int, cbrt(MAXITERATIONS))
 
@@ -68,7 +70,7 @@ const MAXITERATIONS3 = round(Int, cbrt(MAXITERATIONS))
             @test F(2) / 41 == F(2) / F(41)
             @test F(2) // 41 == F(2) // F(41)
             @test 2 / F(41) == F(2) / F(41)
-            @test 2 // F(41) == F(2) / F(41)
+            @test 2 // F(41) == F(2) // F(41)
         end
     end
 
@@ -137,6 +139,14 @@ const MAXITERATIONS3 = round(Int, cbrt(MAXITERATIONS))
         @test α + β == β + α
         @test α + β + γ == γ + β + α
 
+        @test G(H(α)) == α
+        @test G(K(α)) == α
+
+        @test norm(G, γ) isa G
+        @test tr(G, γ) isa G
+        @test norm(H, γ) isa H
+        @test tr(H, γ) isa H
+
         @test_throws GaloisFields.InclusionError G(β)
     end
 
@@ -147,6 +157,7 @@ const MAXITERATIONS3 = round(Int, cbrt(MAXITERATIONS))
             elements = rand(F, MAXITERATIONS)
         end
         @test all(+x == x                       for x in elements)
+        @test all(zero(x) + x == x              for x in elements)
         @test all(one(F) * x == x               for x in elements)
         @test all(x + -x == 0 == -x + x         for x in elements)
         @test all(x^0 == 1                      for x in elements)
