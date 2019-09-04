@@ -67,6 +67,7 @@ include("Reinterpret.jl")
 include("Broadcast.jl")
 include("Display.jl")
 include("LinearAlgebra.jl")
+include("PrimitiveRoots.jl")
 
 """
     const F = GaloisField(p)
@@ -161,6 +162,7 @@ GaloisField(p::Integer, n::Integer) = GaloisField(p, n, gensym())
 GaloisField(factors::Factorization) = GaloisField(factors, gensym())
 
 function GaloisField(p::Integer, n::Integer, sym::Symbol)
+    isprime(p) || error("There is no finite field of characteristic $p")
     I = inttype(p)
     # standardize on what type of integer we use in the type
     # parameter. This allows us to just write e.g. PrimeField{I, 2} where I
@@ -177,7 +179,7 @@ end
 
 function GaloisField(factors::Factorization, sym::Symbol)
     if length(factors) != 1
-        error("There is no finite field of order $(prod(f))")
+        error("There is no finite field of order $(prod(factors))")
     end
     (p, n), = factors
     return GaloisField(p, n, sym)

@@ -72,6 +72,13 @@ const MAXITERATIONS3 = round(Int, cbrt(MAXITERATIONS))
             @test 2 / F(41) == F(2) / F(41)
             @test 2 // F(41) == F(2) // F(41)
         end
+        @testset "Overflow of $I" for I in [Int8, Int16, Int32, Int64, Int128]
+            for i in (typemin(I), typemax(I))
+                @test F(2) + i == F(big"2" + i)
+                @test F(2) - i == F(big"2" - i)
+                @test F(2) * i == F(big"2" * i)
+            end
+        end
     end
 
     @testset "Extensions of 𝔽₃" begin
@@ -334,4 +341,37 @@ const MAXITERATIONS3 = round(Int, cbrt(MAXITERATIONS))
         @test z .+ z .* z == map(a -> a + a * a, z)
         @test w .+ w .* w == map(a -> a + a * a, w)
     end
+
+    @testset "Primitive roots of unity" begin
+        let 𝔽₁₀₃₁ = GaloisField(1031), n = 103
+            # The really naive way to check for primitive roots of unity
+            # 1031 is small, so this is fast enough.
+            naive_roots_of_unity = filter(1:1030) do x
+                e = 𝔽₁₀₃₁(x)
+                # Is this a root of unity?
+                isone(e^n) || return false
+                # Is it primitive?
+                for i = 1:n-1
+                    isone(e^i) && return false
+                end
+                return true
+            end
+
+            # Generate a bunch of primitive roots of unity and do some basic
+            # sanity checks.
+            let random_roots_of_unity = [GaloisFields.any_primitive_root(𝔽₁₀₃₁, n) for _ = 1:1000]
+                @test all(x->x in naive_roots_of_unity, random_roots_of_unity)
+                # Make sure they're not all the same
+                @test any(x->x != random_roots_of_unity[1], random_roots_of_unity)
+            end
+
+            # Check to make sure that we're getting the correct minimum root of
+            # unity.
+            @test minimum(naive_roots_of_unity) ==
+                GaloisFields.minimal_primitive_root(𝔽₁₀₃₁, n)
+        end
+    end
+
+    @test_throws ErrorException GaloisField(10)
+    @test_throws ErrorException GaloisField(10, 1)
 end
