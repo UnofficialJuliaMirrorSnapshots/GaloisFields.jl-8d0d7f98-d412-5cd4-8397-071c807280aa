@@ -1,5 +1,7 @@
 import Base.Checked: add_with_overflow, sub_with_overflow
 
+import .Util: hilo_mul
+
 """
     posmod(x, y)
 
@@ -52,13 +54,28 @@ end
 zero(F::Type{<:PrimeField}) = F(Reduced(), zero(inttype(F)))
 one( F::Type{<:PrimeField}) = F(Reduced(),  one(inttype(F)))
 
+@Base.pure function _power_of_two(n, p)
+    return rem(big"2"^n, p) % typeof(p)
+end
+
+@Base.pure _overflow_value(F, I) = _power_of_two(leading_zeros(zero(I)), char(F))
+@Base.pure _overflow_value(F) = _overflow_value(F, inttype(F))
+
 function +(a::F, b::F) where F<:PrimeField
     iszero(a) && return +b
     iszero(b) && return +a
     if char(F) > div(typemax(inttype(F)), 2)
         m, overflowed = add_with_overflow(a.n, b.n)
         if overflowed
+            # the effect of the overflow is that typemax(I) + 1
+            # is replaced by typemin(I). In other words, we
+            # basically substracted
+            #     typemax(I) + 1 - typemin(I)
+            # We need to add it back to make up for this. And
+            # because we're about to do a mod p reduction,
+            # we can add back the mod p residue class.
             m += 2rem(typemax(inttype(F)), char(F)) + 2
+            # TODO: can this last operation overflow?
         end
         F(m) # note: not necessarily non-negative in this case!
     else
@@ -72,6 +89,8 @@ function -(a::F, b::F) where F<:PrimeField
     if char(F) > div(typemax(inttype(F)), 2)
         m, overflowed = sub_with_overflow(a.n, b.n)
         if overflowed
+            # see above for an explanation of this magic
+            # number.
             m -= 2rem(typemax(inttype(F)), char(F)) + 2
         end
         F(m) # note: not necessarily non-negative in this case!
@@ -89,6 +108,33 @@ function *(a::F, b::F) where F<:PrimeField
     isone(a) && return +b
     isone(b) && return +a
     F(NonNegative(), Base.widemul(a.n, b.n))
+end
+
+*(a::F, b::F) where F <: PrimeField{Int128} = a * b.n # use allocation-free function below
+
+# a version that avoids widemul (which allocates a BigInt for Int128)
+function *(a::F, b::Union{Int8, Int16, Int32, Int64, Int128}) where F <: PrimeField{Int128}
+    iszero(a) && return zero(F)
+    iszero(b) && return zero(F)
+    isone(a) && return F(b)
+    isone(b) && return +a
+
+    u = a.n
+    v = Int128(b)
+    res = zero(UInt128)
+
+    # TODO: prove that this terminates
+    while true
+        hi, lo = hilo_mul(u, v)
+
+        res, overflow = add_with_overflow(res, lo)
+        hi += overflow
+
+        iszero(hi) && return F(res)
+
+        u = hi
+        v = _overflow_value(F, UInt128)
+    end
 end
 
 function *(a::PrimeField, b::Integer)

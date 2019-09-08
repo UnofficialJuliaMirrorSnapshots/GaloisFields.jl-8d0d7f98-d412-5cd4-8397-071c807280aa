@@ -56,6 +56,7 @@ Return the characteristic of a finite field, or 0 for <:Integer or <:Rational{<I
 char(::Type{<:Rational{<:Integer}}) = 0
 char(::Type{<:Integer}) = 0
 
+include("Util.jl")
 include("BoundedIntegers.jl")
 include("PrimeFields.jl")
 include("ZechLog.jl")
@@ -153,6 +154,9 @@ function conwaypolynomial(p::Integer, n::Integer)
     if _conwaypolynomials == nothing
         _conwaypolynomials = deserialize(open(DATAFILE))
     end
+    if (p, n) ∉ keys(_conwaypolynomials)
+        error("No Conway polynomial for $p^$n in the database. Please specify one using e.g. @GaloisField! $p <some polynomial>")
+    end
     return _conwaypolynomials[p, n]
 end
 
@@ -203,11 +207,11 @@ macro GaloisField(expr)
     if res === nothing
         error("Not implemented: @GaloisField $expr")
     end
-    return GaloisField(res)
+    return :( GaloisField($res) )
 end
 
 function _factorization(p::Integer, n::Integer)
-    return Factorization{Int}(Dict(p => n))
+    return Factorization{typeof(p)}(Dict(p => n))
 end
 
 function _parse_declaration(expr)
@@ -220,12 +224,11 @@ function _parse_declaration(expr)
             expr.args[2] == :ℤ && expr.args[3].head == :call &&
             expr.args[3].args[1] == :* && expr.args[3].args[3] == :ℤ
             p = expr.args[3].args[2]
-            factors = _factorization(p, 1)
+            factors = :( _factorization($(esc(p)), 1) )
             return factors
-        elseif expr.head == :call && expr.args[1] == :^ &&
-            expr.args[2] isa Integer && expr.args[3] isa Integer
+        elseif expr.head == :call && expr.args[1] == :^
             p, n = expr.args[2:end]
-            factors = _factorization(p, n)
+            factors = :( _factorization($(esc(p)), $(esc(n))) )
             return factors
         end
     # @GaloisField 𝔽₃₇
@@ -234,7 +237,7 @@ function _parse_declaration(expr)
         if str[1] == '𝔽'
             s = ['₀','₁','₂','₃','₄','₅','₆','₇','₈','₉']
             indices = indexin(str[2:end], s)
-            q = 0
+            q = zero(BigInt)
             for ix in indices
                 q = 10q + ix - 1
             end
@@ -289,7 +292,7 @@ macro GaloisField!(expr, minpoly)
     decl = _parse_declaration(expr)
     F = something(decl, esc(expr))
     quote
-        EF, $(esc(sym)) = $GaloisField($F, $poly)
+        EF, $(esc(sym)) = GaloisField($F, $poly)
         EF
     end
 end

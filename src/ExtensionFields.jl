@@ -1,4 +1,4 @@
-import Base: @pure
+import Base: @pure, power_by_squaring, literal_pow, widemul
 
 """
     F = ExtensionField{F <: AbstractGaloisField, N, α, MinPoly}
@@ -107,13 +107,70 @@ end
     end
 end
 
-@inline function _convolution_of_range(F, vec1, vec2, N, lo, hi)
+*(::Direct, a::F, b::F) where F <: ExtensionField = _mul_generated(F, a.coeffs, b.coeffs)
+
+literal_pow(::typeof(^), a::F, ::Val{2}) where F <: ExtensionField = _mul_generated(F, a.coeffs)
+
+
+function inv(::Direct, a::F) where F <: ExtensionField
+    iszero(a) && throw(DivideError())
+    N = n(F)
+    coeffs = collect(a.coeffs)
+    d, u, v = _gcdx(coeffs, collect(minpoly(F)))
+    @assert !iszero(d[1]) && all(iszero, @view d[2:end])
+    u ./= d[1]
+    return F(ntuple(i -> u[i], n(F)))
+end
+
+/(::Direct, a::F, b::F) where F <: ExtensionField = a * inv(b)
+//(::Direct, a::F, b::F) where F <: ExtensionField = a * inv(b)
+^(::Direct, a::F, n::Integer) where F <: ExtensionField = power_by_squaring(a, n)
+
+*(a::F, b::F)       where F <: ExtensionField = zech_op(F, *, a, b)
+/(a::F, b::F)       where F <: ExtensionField = zech_op(F, /, a, b)
+//(a::F, b::F)      where F <: ExtensionField = zech_op(F, //, a, b)
+^(a::F, n::Integer) where F <: ExtensionField = zech_op(F, ^, a, n)
+inv(a::F)           where F <: ExtensionField = zech_op(F, inv, a)
+
+function power_by_squaring(a::F, n::Integer) where F <: ExtensionField
+    iszero(a) && return iszero(n) ? one(a) : zero(a)
+    # TODO: when length(F) is a BigInt, this allocates BigInt(n),
+    # which is a wasteful allocation when n is small.
+    n = mod(n, length(F) - 1)
+    if n >= div(length(F) - 1, 2)
+        n -= length(F) - 1
+    end
+    if n < 0
+        a, n = inv(a), -n
+    end
+    n == 0 && return one(a)
+
+    t = trailing_zeros(n) + 1
+    n >>= t
+    while (t -= 1) > 0
+        a = a^2
+    end
+    b = a
+    while n > 0
+        t = trailing_zeros(n) + 1
+        n >>= t
+        while (t -= 1) >= 0
+            a = a^2
+        end
+        b *= a
+    end
+    return b
+end
+
+@inline function _convolution(F, N, lo, hi, vec1, vec2)
     res = sum(vec1[i] * vec2[N - i + 1] for i in lo:hi)
     return F(res)
 end
 
+@inline _convolution(F, N, lo, hi, vec) = _convolution(F, N, lo, hi, vec, vec)
+
 const _ApplicableInteger = Union{Int8, Int16, Int32}
-@inline function _convolution_of_range(::Type{F}, vec1::Vec, vec2::Vec, N, lo, hi) where Vec <: NTuple{M, F} where F <: PrimeField{<:_ApplicableInteger} where M
+@inline function _convolution(::Type{F}, N, lo, hi, vec1::Vec, vec2::Vec) where Vec <: NTuple{M, F} where F <: PrimeField{<:_ApplicableInteger} where M
     p = char(F)
     STEP = leading_zeros(zero(Int64)) - 2(leading_zeros(zero(p)) - leading_zeros(p))
     @assert STEP >= 1
@@ -121,7 +178,7 @@ const _ApplicableInteger = Union{Int8, Int16, Int32}
     res = zero(Int64)
     for i in lo:STEP:hi
         for k in i:min(i + STEP - 1, hi)
-            res += Base.widemul(vec1[k].n, vec2[N - k + 1].n)
+            res += widemul(vec1[k].n, vec2[N - k + 1].n)
         end
         res = rem(res, p)
     end
@@ -129,16 +186,39 @@ const _ApplicableInteger = Union{Int8, Int16, Int32}
     res
 end
 
-@generated function *(::Direct, a::F, b::F) where F <: ExtensionField
+@inline function _convolution(::Type{F}, N, lo, hi, vec::Vec) where Vec <: NTuple{M, F} where F <: PrimeField{<:_ApplicableInteger} where M
+    p = char(F)
+    STEP = leading_zeros(zero(Int64)) - 2(leading_zeros(zero(p)) - leading_zeros(p) + 1)
+    @assert STEP >= 1
+
+    mid = div(lo + hi, 2)
+    mid_counts_once = isodd(hi - lo + 1)
+
+    res = zero(Int64)
+    for i in lo:STEP:mid
+        for k in i:min(i + STEP - 1, mid)
+            factor = ifelse(mid_counts_once && k == mid, 1, 2)
+            res += factor * widemul(vec[k].n, vec[N - k + 1].n)
+        end
+        res = rem(res, p)
+    end
+    res = F(Reduced(), res)
+    res
+end
+
+# in case of length(operands) == 1: compute its square
+# in case of length(operands) == 2: compute their product
+# (ugly interface, but reduces code duplication)
+@generated function _mul_generated(::Type{F}, operands...) where F <: ExtensionField
     N = n(F)
     coeffs = [Symbol(:coeff, i) for i in 1:N]
     code = quote
     end
     for j in 1:N
-        push!(code.args, :( $(coeffs[j]) = _convolution_of_range(basefield(F), a.coeffs, b.coeffs, $j, 1, $j)))
+        push!(code.args, :( $(coeffs[j]) = _convolution(basefield(F), $j, 1, $j, operands...)))
     end
     for i in N + 1 : 2N - 1
-        c = :( if (q = _convolution_of_range(basefield(F), a.coeffs, b.coeffs, $i, $(i + 1 - N), $N)) |> !iszero
+        c = :( if (q = _convolution(basefield(F), $i, $(i + 1 - N), $N, operands...)) |> !iszero
         end )
         coeffs_to_add = _pow_of_generator_rem(F, i - 1).coeffs
         for j in 1 : N
@@ -154,37 +234,6 @@ end
 
     code
 end
-
-function inv(::Direct, a::F) where F <: ExtensionField
-    iszero(a) && throw(DivideError())
-    N = n(F)
-    coeffs = collect(a.coeffs)
-    d, u, v = _gcdx(coeffs, collect(minpoly(F)))
-    @assert !iszero(d[1]) && all(iszero, @view d[2:end])
-    u ./= d[1]
-    return F(ntuple(i -> u[i], n(F)))
-end
-
-/(::Direct, a::F, b::F) where F <: ExtensionField = a * inv(b)
-//(::Direct, a::F, b::F) where F <: ExtensionField = a * inv(b)
-function ^(::Direct, a::F, n::Integer) where F <: ExtensionField
-    # TODO: when length(F) is a BigInt, this allocates BigInt(n),
-    # which is a wasteful allocation when n is small.
-    n = mod(n, length(F) - 1)
-    if n >= div(length(F) - 1, 2)
-        n -= length(F) - 1
-    end
-    if n < 0
-        a, n = inv(a), -n
-    end
-    Base.power_by_squaring(a, n)
-end
-
-*(a::F, b::F)       where F <: ExtensionField = zech_op(F, *, a, b)
-/(a::F, b::F)       where F <: ExtensionField = zech_op(F, /, a, b)
-//(a::F, b::F)      where F <: ExtensionField = zech_op(F, //, a, b)
-^(a::F, n::Integer) where F <: ExtensionField = zech_op(F, ^, a, n)
-inv(a::F)           where F <: ExtensionField = zech_op(F, inv, a)
 
 # -----------------------------------------------------------------------------
 #
