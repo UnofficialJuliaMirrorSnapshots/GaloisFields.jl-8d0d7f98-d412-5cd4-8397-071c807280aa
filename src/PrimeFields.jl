@@ -1,6 +1,6 @@
 import Base.Checked: add_with_overflow, sub_with_overflow
 
-import .Util: hilo_mul
+import .Util: hilo_mul, widen_bits
 
 """
     posmod(x, y)
@@ -38,12 +38,12 @@ n(a::AbstractGaloisField)       = n(typeof(a))
 inttype(a::AbstractGaloisField) = inttype(typeof(a))
 
 function inttype(p::Integer)
-    for I in [Int8, Int16, Int32, Int64, Int128]
-        if p <= typemax(I)
-            return I
-        end
+    T = Int8
+    while isbitstype(T)
+        p <= typemax(T) && return T
+        T = widen_bits(T)
     end
-    error("Primes greater than Int128 are currently unsupported")
+    error("Integer type of prime ($p) must be a bitstype.")
 end
 
 # -----------------------------------------------------------------------------

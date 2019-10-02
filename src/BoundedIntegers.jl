@@ -4,6 +4,8 @@ import Base: +, -, *, ^, div, rem, divrem, mod
 import Base: typemin, typemax, promote_rule, convert
 import Base: zero, one, iszero, isone
 
+import ..Util: widen_bits
+
 """
     BoundedInteger{Bounds, I <: Integer}
 
@@ -35,10 +37,10 @@ _joinbounds(op, b) = b
 _joinbounds(op, b, c...) = _joinbounds(op, b, _joinbounds(op, c...))
 function _joinbounds(op, b, c)
     extrema = (
-        op(widen(first(b)), widen(first(c))),
-        op(widen(first(b)), widen(last(c) )),
-        op(widen(last(b)),  widen(first(c))),
-        op(widen(last(b)),  widen(last(c) )),
+        op(widen_bits(first(b)), widen_bits(first(c))),
+        op(widen_bits(first(b)), widen_bits(last(c) )),
+        op(widen_bits(last(b)),  widen_bits(first(c))),
+        op(widen_bits(last(b)),  widen_bits(last(c) )),
     )
     lo, hi = min(extrema...), max(extrema...)
     I = _mintype(lo : hi)
@@ -46,11 +48,11 @@ function _joinbounds(op, b, c)
 end
 
 @inline function _mintype(bounds)
-    first(bounds) >=   typemin(Int8) && last(bounds) <=   typemax(Int8) && return   Int8
-    first(bounds) >=  typemin(Int16) && last(bounds) <=  typemax(Int16) && return  Int16
-    first(bounds) >=  typemin(Int32) && last(bounds) <=  typemax(Int32) && return  Int32
-    first(bounds) >=  typemin(Int64) && last(bounds) <=  typemax(Int64) && return  Int64
-    first(bounds) >= typemin(Int128) && last(bounds) <= typemax(Int128) && return Int128
+    T = Int8
+    while isbitstype(T)
+        first(bounds) >= typemin(T) && last(bounds) <= typemax(T) && return T
+        T = widen_bits(T)
+    end
     error("BoundedInteger out of bounds: $bounds")
 end
 
